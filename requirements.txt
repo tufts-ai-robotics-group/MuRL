@@ -1,0 +1,14 @@
+numpy
+pandas
+peewee
+gymnasium
+black
+flask
+flask_sqlalchemy
+flask-cors
+flask-jwt-extended
+mysqlclient
+torch
+torchvision
+torchaudio
+sphinx
