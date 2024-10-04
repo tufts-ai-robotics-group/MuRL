@@ -9,7 +9,7 @@ import torch.nn as nn
 from torch.distributions import MultivariateNormal
 from torch.distributions import Categorical
 
-from rl.algorithms.algorithm import PolicyGradientAlgorithm
+from murl.algorithms.algorithm import PolicyGradientAlgorithm
 
 import numpy as np
 import logging

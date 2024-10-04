@@ -13,7 +13,11 @@ import json
 from multiprocessing import Pool
 import gymnasium as gym
 
-import rl.algorithms as algorithms
+import murl.algorithms as algorithms
+
+from murl import stamped_path
+
+logger = logging.getLogger(__name__)
 
 
 class ExpirementRunner:
@@ -26,36 +30,41 @@ class ExpirementRunner:
         **kwargs,
     ) -> None:
         self._env = env
-        self._expirement_save_location = expirement_save_location
 
-        # Callback system
-        self._env_instantiation_callback = (
-            kwargs["env_instantiation_callback"]
-            if "env_instantiation_callback" in kwargs
-            else None
-        )
-        self._env_reset_callback = (
-            kwargs["env_reset_callback"]
-            if "env_instantiation_callback" in kwargs
-            else None
-        )
-        self._algorithm_instantiation_callback = (
-            kwargs["algorithm_instantiation_callback"]
-            if "algorithm_instantiation_callback" in kwargs
-            else None
-        )
-        self._stop_training_callback = (
-            kwargs["stop_training_callback"]
-            if "stop_training_callback" in kwargs
-            else None
-        )
-        self._stop_validation_callback = (
-            kwargs["stop_validation_callback"]
-            if "stop_validation_callback" in kwargs
-            else None
+        self._expirement_save_location = (
+            kwargs["expirement_save_location"]
+            if "expirement_save_location" in kwargs
+            else stamped_path
         )
 
-        self.logger = logging.getLogger(__name__)
+        # TODO: How to handle callbacks?
+        self._callbacks = {}
+        self.callbacks["env_instantiation"] = (
+            kwargs["callbacks"]["env_instantiation"]
+            if "callbacks" in kwargs and "env_instantiation" in kwargs["callbacks"]
+            else None
+        )
+        self.callbacks["env_reset"] = (
+            kwargs["callbacks"]["env_reset"]
+            if "callbacks" in kwargs and "env_reset" in kwargs["callbacks"]
+            else None
+        )
+        self.callbacks["algorithm_instantiation"] = (
+            kwargs["callbacks"]["algorithm_instantiation"]
+            if "callbacks" in kwargs
+            and "algorithm_instantiation" in kwargs["callbacks"]
+            else None
+        )
+        self.callbacks["training_iteration"] = (
+            kwargs["callbacks"]["training_iteration"]
+            if "callbacks" in kwargs and "training_iteration" in kwargs["callbacks"]
+            else None
+        )
+        self.callbacks["validation"] = (
+            kwargs["callbacks"]["validation"]
+            if "callbacks" in kwargs and "validation" in kwargs["callbacks"]
+            else None
+        )
 
         config_location = config_location
         parallel_expirements = parallel_expirements
@@ -63,11 +72,6 @@ class ExpirementRunner:
         if not os.path.exists(self._expirement_save_location):
             os.makedirs(self._expirement_save_location)
 
-        logging.basicConfig(
-            filename=os.path.join(self._expirement_save_location, "expirement.log"),
-            encoding="utf-8",
-            level=logging.DEBUG,
-        )
         if os.path.isfile(config_location):
             self.run_expirement(config_location)
         elif os.path.isdir(config_location):
@@ -80,9 +84,10 @@ class ExpirementRunner:
                 ]
                 self._run_expirement(arguments[0])
         else:
+            logger.critical("Invalid configuration directory was provided")
             raise ValueError("Invalid directory of file given")
 
-        self.logger.info(
+        logger.info(
             f"All expirements ran. See {self._expirement_save_location} for logs."
         )
 
@@ -97,13 +102,11 @@ class ExpirementRunner:
             with open(config_file, "r") as json_file:
                 config = json.load(json_file)
         except FileNotFoundError:
-            self.logger.warning(
-                f"File not found: {config_file}, moving to next file..."
-            )
+            logger.warning(f"File not found: {config_file}, moving to next file...")
             return
 
         if len(config["seeds"]) != config["number_of_trials"]:
-            self.logger.error(
+            logger.error(
                 f"There are more trials then given seeds in {config_file}, proceeding to next file..."
             )
             return
@@ -132,7 +135,7 @@ class ExpirementRunner:
             training_rewards,
             training_timesteps,
         )
-        self.logger.info(f"Expirement: {config['name']} complete.")
+        logger.info(f"Expirement: {config['name']} complete.")
 
     def _run_trial(self, seed: int, **config) -> list:
         """
@@ -148,18 +151,18 @@ class ExpirementRunner:
 
             env = (
                 self._env()
-                if self._env_instantiation_callback is None
-                else self._env_instantiation_callback(
+                if self.callbacks["env_instantiation"] is None
+                else self.callbacks["env_instantiation"](
                     seed, random_number_generator, **config["env"]
                 )
             )
 
             algorithm = (
                 algorithms.algorithms[config["algorithm"]["name"]](
-                    random_number_generator, self.logger, env, **config["algorithm"]
+                    random_number_generator, logger, env, **config["algorithm"]
                 )
-                if self._algorithm_instantiation_callback is None
-                else self._algorithm_instantiation_callback(
+                if self.callbacks["algorithm_instantiation"] is None
+                else self.callbacks["algorithm_instantiation"](
                     seed, random_number_generator, **config["algorithm"]
                 )
             )
@@ -181,8 +184,8 @@ class ExpirementRunner:
                 print("working...")
                 state = (
                     env.reset()[0]
-                    if self._env_reset_callback is None
-                    else self._env_reset_callback(
+                    if self.callbacks["env_reset"] is None
+                    else self.callbacks["env_reset"](
                         env, seed, random_number_generator, **config["env"]
                     )[0]
                 )
@@ -211,15 +214,15 @@ class ExpirementRunner:
                     if validation_rewards[-1] >= stop_reward:
                         break
 
-                    if self._stop_validation_callback is not None:
-                        if self._stop_validation_callback(
+                    if self.callbacks["validation"] is not None:
+                        if self.callbacks["validation"](
                             seed,
                             random_number_generator,
                             config,
                             validation_rewards,
                             validation_timesteps,
                         ):
-                            self.logger.info(
+                            logger.info(
                                 f"Expirement {config['name']}, trial {'seed'} completed from validation stop callback."
                             )
                             break
@@ -237,15 +240,15 @@ class ExpirementRunner:
 
                     training_rewards.append(episode_rewards)
                     training_timesteps.append(episode_timesteps)
-                    if self._stop_training_callback is not None:
-                        if self._stop_training_callback(
+                    if self.callbacks["training_iteration"] is not None:
+                        if self.callbacks["training_iteration"](
                             seed,
                             random_number_generator,
                             config,
                             training_rewards,
                             validation_rewards,
                         ):
-                            self.logger.info(
+                            logger.info(
                                 f"Expirement {config['name']}, trial {'seed'} completed from expirement stop callback."
                             )
                             break
@@ -271,20 +274,19 @@ class ExpirementRunner:
                 training_timesteps,
             )
 
-            self.logger.info(f"{config['name']} completed.")
+            logger.info(f"{config['name']} completed.")
             return (
                 validation_rewards,
                 validation_timesteps,
                 training_rewards,
                 training_timesteps,
             )
-        exc
         except KeyError as err:
             self.logger.error(
                 f"Invalid config file: {config['name']}, proceeding to next file: {err}"
             )
             return
         except OSError as err:
-            self.logger.error(f"A file issue occured, {err}")
+            logger.error(f"A file issue occured, {err}")
         except AssertionError as err:
-            self.logger.error(f"Invalid environment, is not gym env: {err}")
+            logger.error(f"Invalid environment, is not gym env: {err}")

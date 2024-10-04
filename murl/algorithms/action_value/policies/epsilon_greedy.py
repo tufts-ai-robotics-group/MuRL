@@ -11,7 +11,7 @@ import numpy as np
 from gymnasium import Env
 import logging
 
-from rl.algorithms.algorithm import ActionValueAlgorithm
+from murl.algorithms.algorithm import ActionValueAlgorithm
 
 
 class EpsilonGreedy(ActionValueAlgorithm.Policy):

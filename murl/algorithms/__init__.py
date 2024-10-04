@@ -1,5 +1,5 @@
-import rl.algorithms.action_value as action_value
-import rl.algorithms.policy_gradient as policy_gradient
+import murl.algorithms.action_value as action_value
+import murl.algorithms.policy_gradient as policy_gradient
 
 algorithms = {}
 
